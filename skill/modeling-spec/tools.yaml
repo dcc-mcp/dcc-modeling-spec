@@ -1,0 +1,419 @@
+tools:
+  - name: get_spec_template
+    description: Return a fresh structured Modeling Spec v2 template before scene authoring begins.
+    source_file: scripts/get_spec_template.py
+    execution: sync
+    affinity: any
+    enforce_thread_affinity: false
+    timeout_hint_secs: 5
+    read_only: true
+    destructive: false
+    idempotent: true
+    annotations:
+      read_only_hint: true
+    input_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        asset_name:
+          type: string
+          minLength: 1
+          maxLength: 128
+          default: Untitled asset
+        linear_unit:
+          type: string
+          enum: [mm, cm, m, in, ft]
+          default: cm
+    output_schema:
+      type: object
+      required: [success, message, context]
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        context:
+          type: object
+          required: [spec, next_action]
+          properties:
+            spec:
+              type: object
+              required:
+                - spec_version
+                - asset
+                - parts
+                - never
+                - proportions
+                - hierarchy
+                - materials
+                - quality_priority
+                - uncertainties
+                - acceptance
+            next_action:
+              type: string
+    call_examples:
+      - note: Start a centimeter-based vehicle modeling contract.
+        arguments:
+          asset_name: Scout Rotorcraft
+          linear_unit: cm
+
+  - name: validate_spec
+    description: Block scene work until a Modeling Spec v2 is complete, coherent, and measurable.
+    source_file: scripts/validate_spec.py
+    execution: sync
+    affinity: any
+    enforce_thread_affinity: false
+    timeout_hint_secs: 5
+    read_only: true
+    destructive: false
+    idempotent: true
+    annotations:
+      read_only_hint: true
+    input_schema:
+      type: object
+      additionalProperties: false
+      required: [spec]
+      properties:
+        spec:
+          type: object
+          description: Filled Modeling Spec v2 object returned by get_spec_template.
+        strict_quality:
+          type: boolean
+          default: true
+    output_schema:
+      type: object
+      required: [success, message, context]
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        context:
+          type: object
+          required: [passed, failures, part_count, material_count, strict_quality]
+          properties:
+            passed:
+              type: boolean
+            failures:
+              type: array
+              items:
+                type: object
+                required: [code, path, message, remediation]
+                properties:
+                  code: {type: string}
+                  path: {type: string}
+                  message: {type: string}
+                  remediation: {type: string}
+                additionalProperties: true
+            part_count:
+              type: integer
+              minimum: 0
+            material_count:
+              type: integer
+              minimum: 0
+            strict_quality:
+              type: boolean
+    call_examples:
+      - note: Run the blocking quality gate after filling every template section.
+        arguments:
+          strict_quality: true
+          spec:
+            spec_version: "2.0"
+            asset: {name: Example, linear_unit: cm, purpose: review, reference_ids: []}
+            parts: []
+            never: []
+            proportions: []
+            hierarchy: {root: asset_root, nodes: []}
+            materials: []
+            quality_priority: []
+            uncertainties: []
+            acceptance:
+              stages: []
+              max_corrections_per_stage: 3
+              max_total_corrections: 8
+
+  - name: validate_scene_vs_spec
+    description: Compare typed host measurements with one declared spec stage and return actionable failures.
+    source_file: scripts/validate_scene_vs_spec.py
+    execution: sync
+    affinity: any
+    enforce_thread_affinity: false
+    timeout_hint_secs: 10
+    read_only: true
+    destructive: false
+    idempotent: true
+    annotations:
+      read_only_hint: true
+    input_schema:
+      type: object
+      additionalProperties: false
+      required: [spec, scene]
+      properties:
+        spec:
+          type: object
+          description: A Modeling Spec v2 that already passed validate_spec.
+        scene:
+          type: object
+          required: [parts, meshes, proportions]
+          properties:
+            parts:
+              type: array
+              items:
+                type: object
+                required: [id, parent, pivot, material_slots]
+                properties:
+                  id: {type: string, minLength: 1}
+                  parent: {type: string, minLength: 1}
+                  pivot: {type: string, minLength: 1}
+                  material_slots:
+                    type: array
+                    items:
+                      anyOf:
+                        - {type: string}
+                        - {type: "null"}
+            meshes:
+              type: array
+              items:
+                type: object
+                required:
+                  - part_id
+                  - uv_coverage
+                  - unbound_material_slots
+                  - non_manifold_edges
+                  - euler_characteristic
+                  - expected_euler_characteristic
+                properties:
+                  part_id: {type: string, minLength: 1}
+                  uv_coverage: {type: number, minimum: 0, maximum: 1}
+                  unbound_material_slots: {type: integer, minimum: 0}
+                  non_manifold_edges: {type: integer, minimum: 0}
+                  euler_characteristic: {type: integer}
+                  expected_euler_characteristic: {type: integer}
+            proportions:
+              type: object
+              additionalProperties:
+                type: number
+          additionalProperties: false
+        stage:
+          type: string
+          minLength: 1
+          maxLength: 64
+          default: final
+    output_schema:
+      type: object
+      required: [success, message, context]
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        context:
+          type: object
+          required: [passed, failures, stage, checks, measured_parts, measured_meshes]
+          properties:
+            passed: {type: boolean}
+            failures:
+              type: array
+              items:
+                type: object
+                required: [code, path, message, remediation]
+                properties:
+                  code: {type: string}
+                  path: {type: string}
+                  message: {type: string}
+                  remediation: {type: string}
+                additionalProperties: true
+            stage: {type: string}
+            checks:
+              type: array
+              items: {type: string}
+            measured_parts: {type: integer, minimum: 0}
+            measured_meshes: {type: integer, minimum: 0}
+    call_examples:
+      - note: Validate final measured facts after a typed host readback.
+        arguments:
+          spec:
+            spec_version: "2.0"
+            acceptance:
+              stages:
+                - id: final
+                  checks: [all_required_parts, uv_coverage, material_bindings, topology]
+          scene:
+            parts: []
+            meshes: []
+            proportions: {}
+          stage: final
+
+  - name: make_comparison_sheet
+    description: Package one reference and one to eight PNG captures into a labeled sheet without scoring them.
+    source_file: scripts/make_comparison_sheet.py
+    execution: sync
+    affinity: any
+    enforce_thread_affinity: false
+    timeout_hint_secs: 30
+    read_only: false
+    destructive: true
+    idempotent: false
+    annotations:
+      read_only_hint: false
+      destructive_hint: true
+    input_schema:
+      type: object
+      additionalProperties: false
+      required: [reference_path, capture_paths, output_path]
+      properties:
+        reference_path:
+          type: string
+          minLength: 1
+          maxLength: 4096
+        capture_paths:
+          type: array
+          minItems: 1
+          maxItems: 8
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 1
+            maxLength: 4096
+        output_path:
+          type: string
+          minLength: 1
+          maxLength: 4096
+        labels:
+          type: array
+          minItems: 2
+          maxItems: 9
+          items:
+            type: string
+            minLength: 1
+            maxLength: 40
+        tile_width:
+          type: integer
+          minimum: 64
+          maximum: 2048
+          default: 640
+        tile_height:
+          type: integer
+          minimum: 32
+          maximum: 2048
+          default: 360
+        overwrite:
+          type: boolean
+          default: false
+    output_schema:
+      type: object
+      required: [success, message, context]
+      properties:
+        success: {type: boolean}
+        message: {type: string}
+        error: {type: string}
+        context:
+          type: object
+          properties:
+            output_path: {type: string}
+            width: {type: integer, minimum: 1}
+            height: {type: integer, minimum: 1}
+            tile_count: {type: integer, minimum: 2, maximum: 9}
+            labels:
+              type: array
+              items: {type: string}
+            packaged_only: {type: boolean}
+          additionalProperties: true
+    call_examples:
+      - note: Package one reference with front, side, and perspective captures.
+        arguments:
+          reference_path: /review/reference.png
+          capture_paths: [/review/front.png, /review/side.png, /review/perspective.png]
+          output_path: /review/cycle-01.png
+          labels: [REFERENCE, FRONT, SIDE, PERSPECTIVE]
+
+  - name: image_stats
+    description: Detect unusable black or white PNG frames and explicit gamma or sRGB metadata mismatches.
+    source_file: scripts/image_stats.py
+    execution: sync
+    affinity: any
+    enforce_thread_affinity: false
+    timeout_hint_secs: 15
+    read_only: true
+    destructive: false
+    idempotent: true
+    annotations:
+      read_only_hint: true
+    input_schema:
+      type: object
+      additionalProperties: false
+      required: [image_path]
+      properties:
+        image_path:
+          type: string
+          minLength: 1
+          maxLength: 4096
+        expected_color_space:
+          type: string
+          enum: [auto, srgb, linear]
+          default: auto
+        black_threshold:
+          type: number
+          minimum: 0
+          maximum: 1
+          default: 0.01
+        white_threshold:
+          type: number
+          minimum: 0
+          maximum: 1
+          default: 0.99
+        uniform_fraction:
+          type: number
+          minimum: 0.5
+          maximum: 1
+          default: 0.99
+    output_schema:
+      type: object
+      required: [success, message, context]
+      properties:
+        success: {type: boolean}
+        message: {type: string}
+        error: {type: string}
+        context:
+          type: object
+          properties:
+            image_path: {type: string}
+            width: {type: integer, minimum: 1}
+            height: {type: integer, minimum: 1}
+            pixel_count: {type: integer, minimum: 1}
+            channel_mean:
+              type: array
+              minItems: 3
+              maxItems: 3
+              items: {type: number}
+            channel_min:
+              type: array
+              minItems: 3
+              maxItems: 3
+              items: {type: number}
+            channel_max:
+              type: array
+              minItems: 3
+              maxItems: 3
+              items: {type: number}
+            mean_luma: {type: number, minimum: 0, maximum: 1}
+            black_fraction: {type: number, minimum: 0, maximum: 1}
+            white_fraction: {type: number, minimum: 0, maximum: 1}
+            is_black: {type: boolean}
+            is_white: {type: boolean}
+            expected_color_space: {type: string}
+            png_gamma:
+              anyOf:
+                - {type: number}
+                - {type: "null"}
+            png_srgb: {type: boolean}
+            gamma_status:
+              type: string
+              enum: [not_requested, valid, missing, mismatch]
+            gamma_broken: {type: boolean}
+          additionalProperties: true
+    call_examples:
+      - note: Reject a broken sRGB review capture before packaging it.
+        arguments:
+          image_path: /review/front.png
+          expected_color_space: srgb
