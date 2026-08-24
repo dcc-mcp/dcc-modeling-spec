@@ -203,6 +203,7 @@ def _check_materials(
 
 def _check_meshes(
     required_parts: set[str],
+    expected_euler_by_part: dict[str, int],
     meshes: dict[str, Mapping[str, Any]],
     checks: set[str],
     failures: list[dict[str, Any]],
@@ -243,6 +244,15 @@ def _check_meshes(
                     )
                 )
         if "topology" in checks:
+            if "expected_euler_characteristic" in mesh:
+                failures.append(
+                    failure(
+                        "measurement_field_forbidden",
+                        f"{path}.expected_euler_characteristic",
+                        "scene measurements cannot declare their own topology expectation",
+                        "Remove the field; the validated part spec owns the expected value.",
+                    )
+                )
             non_manifold = mesh.get("non_manifold_edges")
             if (
                 not isinstance(non_manifold, int)
@@ -269,19 +279,23 @@ def _check_meshes(
                     )
                 )
             actual_euler = mesh.get("euler_characteristic")
-            expected_euler = mesh.get("expected_euler_characteristic")
-            if (
-                not isinstance(actual_euler, int)
-                or isinstance(actual_euler, bool)
-                or not isinstance(expected_euler, int)
-                or isinstance(expected_euler, bool)
-            ):
+            expected_euler = expected_euler_by_part.get(part_id)
+            if not isinstance(actual_euler, int) or isinstance(actual_euler, bool):
                 failures.append(
                     failure(
                         "measurement_missing",
                         f"{path}.euler_characteristic",
-                        "actual and expected Euler characteristics are required",
-                        "Measure V-E+F and declare the expected topology value.",
+                        "measured Euler characteristic is required",
+                        "Measure V-E+F in the owning adapter.",
+                    )
+                )
+            elif expected_euler is None:
+                failures.append(
+                    failure(
+                        "spec_topology_missing",
+                        f"spec.parts.{part_id}.expected_euler_characteristic",
+                        "the validated spec has no topology expectation for this mesh",
+                        "Declare the intended V-E+F value in the part spec and revalidate it.",
                     )
                 )
             elif actual_euler != expected_euler:
@@ -374,13 +388,21 @@ def validate_scene_vs_spec(spec: dict, scene: dict, stage: str = "final", **kwar
     checks, stage_failures = _stage_checks(spec, stage)
     failures.extend(stage_failures)
     spec_parts = spec.get("parts") if isinstance(spec.get("parts"), list) else []
+    expected_euler_by_part = {
+        item["id"]: item["expected_euler_characteristic"]
+        for item in spec_parts
+        if isinstance(item, Mapping)
+        and is_nonempty_string(item.get("id"))
+        and isinstance(item.get("expected_euler_characteristic"), int)
+        and not isinstance(item.get("expected_euler_characteristic"), bool)
+    }
     parts = _records_by_id(scene.get("parts"), "parts", failures)
     meshes = _records_by_id(scene.get("meshes"), "meshes", failures)
     required = _check_parts(spec_parts, parts, checks, failures)
     if "proportions" in checks:
         _check_proportions(spec, scene, failures)
     if "uv_coverage" in checks or "topology" in checks:
-        _check_meshes(required, meshes, checks, failures)
+        _check_meshes(required, expected_euler_by_part, meshes, checks, failures)
     if "material_bindings" in checks:
         _check_materials(spec, parts, meshes, failures)
     passed = not failures

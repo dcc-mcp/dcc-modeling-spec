@@ -25,6 +25,10 @@ The default template contains:
 - `final`: blockout checks plus complete UV coverage, bound material slots,
   non-manifold checks, and expected Euler characteristics.
 
+Each required mesh part declares its expected Euler characteristic in the spec.
+The scene payload supplies only the measured value and cannot author or override
+that expectation.
+
 A project may add stages, but every check must match the work declared for that
 stage. Do not require a render, chart, animation, or unrelated presentation gate
 from a modeling-only stage.

@@ -16,6 +16,7 @@ def _valid_spec() -> dict:
             "required": True,
             "parent": "asset_root",
             "pivot": "center_of_mass",
+            "expected_euler_characteristic": 2,
         },
         {
             "id": "rotor",
@@ -23,6 +24,7 @@ def _valid_spec() -> dict:
             "required": True,
             "parent": "body",
             "pivot": "rotor_axis",
+            "expected_euler_characteristic": 2,
         },
     ]
     spec["never"] = ["Do not merge the rotor into the body mesh"]
@@ -109,6 +111,22 @@ def test_non_finite_proportion_and_incoherent_caps_are_rejected() -> None:
     assert "correction_caps_incoherent" in codes
 
 
+def test_spec_requires_owned_topology_expectations() -> None:
+    validate = load_script("validate_spec")
+    spec = _valid_spec()
+    del spec["parts"][1]["expected_euler_characteristic"]
+
+    result = validate.validate_spec(spec=spec, strict_quality=True)
+
+    failures = result["context"]["failures"]
+    assert result["context"]["passed"] is False
+    assert any(
+        item["code"] == "part_topology_expectation_missing"
+        and item["path"] == "parts[1].expected_euler_characteristic"
+        for item in failures
+    )
+
+
 def test_scene_validator_catches_real_uv_and_material_defects() -> None:
     validate = load_script("validate_scene_vs_spec")
     spec = _valid_spec()
@@ -129,7 +147,6 @@ def test_scene_validator_catches_real_uv_and_material_defects() -> None:
                 "unbound_material_slots": 0,
                 "non_manifold_edges": 0,
                 "euler_characteristic": 2,
-                "expected_euler_characteristic": 2,
             },
             {
                 "part_id": "rotor",
@@ -137,7 +154,6 @@ def test_scene_validator_catches_real_uv_and_material_defects() -> None:
                 "unbound_material_slots": 1,
                 "non_manifold_edges": 0,
                 "euler_characteristic": 2,
-                "expected_euler_characteristic": 2,
             },
         ],
         "proportions": {"rotor_to_body": 1.2},
@@ -178,7 +194,6 @@ def test_scene_validator_passes_complete_measured_facts() -> None:
                 "unbound_material_slots": 0,
                 "non_manifold_edges": 0,
                 "euler_characteristic": 2,
-                "expected_euler_characteristic": 2,
             }
             for part in ("body", "rotor")
         ],
@@ -189,3 +204,45 @@ def test_scene_validator_passes_complete_measured_facts() -> None:
 
     assert result["context"]["passed"] is True
     assert result["context"]["failures"] == []
+
+
+def test_scene_cannot_self_author_expected_topology() -> None:
+    validate = load_script("validate_scene_vs_spec")
+    spec = _valid_spec()
+    scene = {
+        "parts": [
+            {
+                "id": "body",
+                "parent": "asset_root",
+                "pivot": "center_of_mass",
+                "material_slots": ["paint"],
+            },
+            {
+                "id": "rotor",
+                "parent": "body",
+                "pivot": "rotor_axis",
+                "material_slots": ["metal"],
+            },
+        ],
+        "meshes": [
+            {
+                "part_id": part,
+                "uv_coverage": 1.0,
+                "unbound_material_slots": 0,
+                "non_manifold_edges": 0,
+                "euler_characteristic": 999,
+                "expected_euler_characteristic": 999,
+            }
+            for part in ("body", "rotor")
+        ],
+        "proportions": {"rotor_to_body": 1.2},
+    }
+
+    result = validate.validate_scene_vs_spec(spec=spec, scene=scene, stage="final")
+
+    failures = result["context"]["failures"]
+    assert result["context"]["passed"] is False
+    mismatches = [item for item in failures if item["code"] == "euler_characteristic_mismatch"]
+    assert len(mismatches) == 2
+    assert all(item["expected"] == 2 for item in mismatches)
+    assert sum(item["code"] == "measurement_field_forbidden" for item in failures) == 2

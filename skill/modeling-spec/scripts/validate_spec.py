@@ -41,7 +41,12 @@ def _require_list(
     return value
 
 
-def _validate_parts(parts: list[Any], failures: list[dict[str, Any]]) -> set[str]:
+def _validate_parts(
+    parts: list[Any],
+    failures: list[dict[str, Any]],
+    *,
+    require_topology: bool,
+) -> set[str]:
     ids: set[str] = set()
     for index, part in enumerate(parts):
         path = f"parts[{index}]"
@@ -95,7 +100,30 @@ def _validate_parts(parts: list[Any], failures: list[dict[str, Any]]) -> set[str
                     "Set required to true or false.",
                 )
             )
+        expected_euler = part.get("expected_euler_characteristic")
+        if ((part.get("required") is True and require_topology) or expected_euler is not None) and (
+            not isinstance(expected_euler, int) or isinstance(expected_euler, bool)
+        ):
+            failures.append(
+                failure(
+                    "part_topology_expectation_missing",
+                    f"{path}.expected_euler_characteristic",
+                    "required mesh parts need a spec-owned Euler characteristic",
+                    "Declare the intended V-E+F value in the part contract.",
+                )
+            )
     return ids
+
+
+def _acceptance_uses_check(value: Any, check: str) -> bool:
+    if not isinstance(value, Mapping) or not isinstance(value.get("stages"), list):
+        return False
+    return any(
+        isinstance(stage, Mapping)
+        and isinstance(stage.get("checks"), list)
+        and check in stage["checks"]
+        for stage in value["stages"]
+    )
 
 
 def _validate_proportions(items: list[Any], failures: list[dict[str, Any]]) -> None:
@@ -487,7 +515,11 @@ def validate_spec(spec: dict, strict_quality: bool = True, **kwargs) -> dict:
         )
 
     parts = _require_list(spec, "parts", failures, nonempty=strict_quality)
-    part_ids = _validate_parts(parts, failures)
+    part_ids = _validate_parts(
+        parts,
+        failures,
+        require_topology=_acceptance_uses_check(spec.get("acceptance"), "topology"),
+    )
     never = _require_list(spec, "never", failures, nonempty=strict_quality)
     if never and not all(is_nonempty_string(item) for item in never):
         failures.append(

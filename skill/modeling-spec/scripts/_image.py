@@ -210,6 +210,14 @@ def read_png(path: Path) -> Image:
 
 
 def encode_png(image: Image) -> bytes:
+    if (
+        image.width < 1
+        or image.height < 1
+        or image.width > MAX_DIMENSION
+        or image.height > MAX_DIMENSION
+        or image.width * image.height > MAX_PIXELS
+    ):
+        raise ValueError("PNG dimensions exceed the supported limits")
     if len(image.pixels) != image.width * image.height * 3:
         raise ValueError("RGB pixel buffer size does not match image dimensions")
     rows = bytearray()
@@ -245,8 +253,14 @@ def write_png_atomic(path: Path, image: Image) -> None:
 
 
 def new_canvas(width: int, height: int, color: tuple[int, int, int]) -> bytearray:
-    if width < 1 or height < 1 or width * height > MAX_PIXELS:
-        raise ValueError("comparison sheet dimensions exceed the supported pixel limit")
+    if (
+        width < 1
+        or height < 1
+        or width > MAX_DIMENSION
+        or height > MAX_DIMENSION
+        or width * height > MAX_PIXELS
+    ):
+        raise ValueError("comparison sheet dimensions exceed the supported limits")
     return bytearray(bytes(color) * (width * height))
 
 

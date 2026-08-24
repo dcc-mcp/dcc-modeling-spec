@@ -15,7 +15,7 @@ Use these terms consistently in specs and review notes.
 | UV coverage | Fraction of mesh faces with valid UV coordinates, from 0 to 1. |
 | unbound slot | A material slot with no resolvable material assignment. |
 | non-manifold edge | An edge whose face adjacency violates the declared surface topology. |
-| Euler characteristic | Measured `V - E + F`, compared with the expected topology value. |
+| Euler characteristic | Measured `V - E + F`, compared with the spec-owned expected topology value. |
 | NEVER constraint | A prohibited outcome that no correction may introduce. |
 | blocking uncertainty | Missing information that prevents the relevant stage from starting. |
 | stage gate | Declared measured checks that must pass before advancing. |

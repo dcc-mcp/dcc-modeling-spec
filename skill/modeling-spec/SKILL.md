@@ -56,7 +56,8 @@ facts without hard-coding adapter tool names.
 ## Modeling Spec v2 contract
 
 - `asset`: stable name, linear unit, purpose, and reference identifiers.
-- `parts`: stable part ids, required/optional status, parent, and pivot intent.
+- `parts`: stable part ids, required/optional status, parent, pivot intent, and
+  spec-owned expected Euler characteristic for required topology-checked meshes.
 - `never`: explicit outcomes that no build or correction may introduce.
 - `proportions`: named numeric ratios with tolerances.
 - `hierarchy`: one root and parent/pivot ownership for every declared part.
@@ -76,7 +77,7 @@ Pass only measured facts to `validate_scene_vs_spec`:
 - part id, parent, pivot, and assigned material slots;
 - per-mesh UV coverage fraction and unbound material slot count;
 - non-manifold edge count;
-- measured and expected Euler characteristic;
+- measured Euler characteristic; the expected value comes only from the part spec;
 - measured values for every declared numeric proportion.
 
 Do not infer missing measurements from a screenshot. The validator fails closed

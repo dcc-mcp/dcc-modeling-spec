@@ -88,3 +88,48 @@ def test_comparison_sheet_packages_images_without_scoring(tmp_path: Path) -> Non
     assert result["context"]["height"] > 48
     assert output.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
     assert "score" not in result["context"]
+
+
+def test_comparison_sheet_rejects_output_wider_than_its_png_contract(tmp_path: Path) -> None:
+    comparison = load_script("make_comparison_sheet")
+    inputs = [tmp_path / f"view-{index}.png" for index in range(9)]
+    for index, path in enumerate(inputs):
+        _write_png(path, 1, 1, (index, index, index))
+    output = tmp_path / "too-wide.png"
+
+    result = comparison.make_comparison_sheet(
+        reference_path=str(inputs[0]),
+        capture_paths=[str(path) for path in inputs[1:]],
+        output_path=str(output),
+        tile_width=1024,
+        tile_height=64,
+    )
+
+    assert result["success"] is False
+    assert result["error"] == "comparison-sheet-failed"
+    assert "dimensions" in result["context"]["reason"]
+    assert output.exists() is False
+
+
+def test_max_count_comparison_sheet_roundtrips_at_dimension_boundary(tmp_path: Path) -> None:
+    comparison = load_script("make_comparison_sheet")
+    stats = load_script("image_stats")
+    inputs = [tmp_path / f"view-{index}.png" for index in range(9)]
+    for index, path in enumerate(inputs):
+        _write_png(path, 1, 1, (index, index, index))
+    output = tmp_path / "max-count.png"
+
+    result = comparison.make_comparison_sheet(
+        reference_path=str(inputs[0]),
+        capture_paths=[str(path) for path in inputs[1:]],
+        output_path=str(output),
+        tile_width=910,
+        tile_height=64,
+    )
+    roundtrip = stats.image_stats(image_path=str(output))
+
+    assert result["success"] is True
+    assert result["context"]["width"] == 8190
+    assert result["context"]["tile_count"] == 9
+    assert roundtrip["success"] is True
+    assert roundtrip["context"]["width"] == 8190

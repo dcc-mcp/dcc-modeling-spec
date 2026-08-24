@@ -181,14 +181,13 @@ tools:
                   - unbound_material_slots
                   - non_manifold_edges
                   - euler_characteristic
-                  - expected_euler_characteristic
                 properties:
                   part_id: {type: string, minLength: 1}
                   uv_coverage: {type: number, minimum: 0, maximum: 1}
                   unbound_material_slots: {type: integer, minimum: 0}
                   non_manifold_edges: {type: integer, minimum: 0}
                   euler_characteristic: {type: integer}
-                  expected_euler_characteristic: {type: integer}
+                additionalProperties: false
             proportions:
               type: object
               additionalProperties:
