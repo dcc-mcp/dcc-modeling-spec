@@ -12,12 +12,15 @@ allowed-tools: Bash Read Write
 metadata:
   dcc-mcp:
     dcc: multi-dcc
-    version: "0.1.0"
+    version: "0.2.0"
     layer: domain
     stage: modeling
-    tags: [modeling, specification, validation, topology, uv, materials, review]
-    search-hint: "modeling spec v2 parts hierarchy pivots proportions UV material validation comparison sheet bounded correction"
+    tags: [modeling, specification, validation, topology, uv, materials, review, ingest]
+    search-hint: "modeling spec v2 parts hierarchy pivots proportions UV material validation comparison sheet bounded correction ingest glTF normalize units"
     tools: tools.yaml
+    recipes: RECIPES.yaml
+    recipes_undo:
+      asset_ingest: manual
     references:
       - "references/*.md"
 ---
@@ -52,6 +55,30 @@ Use [STANDARD.md](references/STANDARD.md) for the pass-gated state machine and
 bounded correction rules. Use [GLOSSARY.md](references/GLOSSARY.md) when writing
 the spec, and [HOST_ROUTING.md](references/HOST_ROUTING.md) to discover measured
 facts without hard-coding adapter tool names.
+
+## Outcome recipes
+
+`RECIPES.yaml` registers one outcome-level recipe with the core recipe runtime,
+reachable through `recipes__list` / `recipes__get` / `recipes__validate` /
+`recipes__apply`:
+
+| Recipe | One-line ask | Deliverable | `undo` |
+|---|---|---|---|
+| `asset_ingest` | "Clean up this glTF and get it ready for the library" | A normalized asset plus a digest-backed material-mapping report, gated by `validate_spec` and `validate_scene_vs_spec` | `manual` — the scene graph is modified, so roll back by reopening the last saved scene and deleting the report |
+
+The recipe composes the gates this skill already ships instead of re-implementing
+unit, material, and UV checks. Each recipe carries `examplePrompts`, `recovery`,
+and an `undo` contract in the P0-B enum (`single-step` \| `none` \| `manual`),
+mirrored in this file's `metadata.dcc-mcp.recipes_undo`.
+`tests/test_modeling_spec_recipes.py` asserts the contract and proves every rule
+can fail.
+
+Core returns the plan verbatim and applies no schema defaults, so materialize
+`${x}` placeholders before dispatch:
+
+```bash
+python examples/asset_ingest/materialize_plan.py --inputs examples/asset_ingest/inputs.example.json
+```
 
 ## Modeling Spec v2 contract
 

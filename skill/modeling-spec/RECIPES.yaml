@@ -1,0 +1,264 @@
+# Asset ingest recipe pack for the modeling-spec skill (PIP-3710).
+#
+# One outcome-level recipe: a single sentence in, a normalized asset plus a
+# machine-checkable ingest report out. The recipe deliberately composes the
+# gates this skill already ships — `validate_spec` and
+# `validate_scene_vs_spec` — instead of re-implementing unit, material, and UV
+# checks. The only host-side work is glTF/OBJ/FBX normalization, normal repair,
+# and measurement, which no adapter publishes as a single tool today and which
+# therefore resolves through `tool_routing.scripting_fallback`.
+#
+#   name             - canonical ingest verb (snake_case); also the dispatch verb
+#   dcc: any         - host agnostic; steps resolve through `tool_routing`
+#   undo             - single-step | none | manual (P0-B enum, mirrored in SKILL.md)
+#   undo_steps       - concrete rollback steps; `none`/`manual` must spell them
+#   inputs_schema    - Draft 2020-12 input contract (validated by core)
+#   steps            - ordered dispatch plan; domain tools are named directly
+#   output_contract  - Draft 2020-12 schema for the observed tool receipt
+#
+# `output_contract` is a schema, not a label: after the tool runs, the observed
+# result is validated against it. Contracts are only meaningful when they can
+# fail, so the contract requires the digests and counts that prove the ingest
+# happened — `source_sha256`, `report_sha256`, `imported_mesh_count`, the
+# measured `uv_coverage_min`, and both gate verdicts.
+#
+# Core returns the plan verbatim: it neither substitutes `${x}` placeholders nor
+# applies schema defaults. Every placeholder therefore names an input that is
+# required or carries a default — including placeholders inside `undo_steps`.
+# `examples/asset_ingest/materialize_plan.py` materializes a plan before dispatch.
+#
+# Placeholders are quoted ("${x}") so YAML keeps them as strings.
+
+pack:
+  name: modeling-spec
+  version: "0.2.0"
+  dcc: any
+  canonical_namespace: asset_ingest
+  output_contract_format: draft-2020-12
+
+# Canonical verb -> the concrete tool each adapter resolves. A `null` entry means
+# no adapter publishes an equivalent: callers must fall back to that adapter's
+# scripting tool and project the result onto the output contract.
+#
+# The three verbs owned by this skill (`get_spec_template`, `validate_spec`,
+# `validate_scene_vs_spec`) are host-neutral domain tools, so every adapter
+# resolves them to the same name. The host-side verbs have no published tool and
+# resolve through `scripting_fallback`.
+tool_routing:
+  adapters: [blender, houdini, maya, "3dsmax"]
+  scripting_fallback:
+    blender: blender_scripting__execute_python
+    houdini: houdini_scripting__execute_python
+    maya: maya_scripting__execute_python
+    "3dsmax": 3dsmax_scripting__execute_python
+  tools:
+    get_spec_template:
+      blender: modeling_spec__get_spec_template
+      houdini: modeling_spec__get_spec_template
+      maya: modeling_spec__get_spec_template
+      "3dsmax": modeling_spec__get_spec_template
+    validate_spec:
+      blender: modeling_spec__validate_spec
+      houdini: modeling_spec__validate_spec
+      maya: modeling_spec__validate_spec
+      "3dsmax": modeling_spec__validate_spec
+    normalize_scene:
+      blender: null
+      houdini: null
+      maya: null
+      "3dsmax": null
+    validate_scene_vs_spec:
+      blender: modeling_spec__validate_scene_vs_spec
+      houdini: modeling_spec__validate_scene_vs_spec
+      maya: modeling_spec__validate_scene_vs_spec
+      "3dsmax": modeling_spec__validate_scene_vs_spec
+    write_ingest_report:
+      blender: null
+      houdini: null
+      maya: null
+      "3dsmax": null
+
+recipes:
+  - name: asset_ingest
+    dcc: any
+    description: >-
+      Ingest one interchange asset, normalize its linear unit and normals, gate it
+      against a Modeling Spec v2, and write a digest-backed material-mapping report.
+    side_effects:
+      modifies: true
+      creates: true
+      deletes: false
+      targets: [scene_graph, report_file]
+    undo: manual
+    undo_steps:
+      - >-
+        Close the scene without saving and reopen the last saved version to discard
+        the imported hierarchy; a host undo stack alone is not a reliable rollback.
+      - "Delete the report file at \"${report_path}\"."
+    examplePrompts:
+      - "Clean up this glTF and get it ready for the library"
+      - "Ingest this model, normalize the units, and tell me what materials mapped"
+      - "Check whether this asset passes our modeling gates before I publish it"
+    recovery:
+      - when: "validate_spec reports passed=false"
+        next: >-
+          Fix the spec failures at the reported paths inside the generated spec, then
+          re-run asset_ingest with the same source_path; do not touch the scene while
+          the spec gate fails.
+      - when: "validate_scene_vs_spec reports unbound material slots or UV coverage below the spec"
+        next: >-
+          Delete the report at report_path, rebind the reported material slots or fix
+          the UV layout in the host, re-measure the scene, then re-run asset_ingest.
+      - when: "normalize_scene finds no scripting tool on this host"
+        next: >-
+          Abort before importing anything and report the missing capability to the
+          owning adapter; do not ingest an unnormalized asset.
+      - when: "the ingest already imported geometry and must be rolled back"
+        next: >-
+          Close the scene without saving, reopen the last saved version, then delete
+          the file at report_path and re-run asset_ingest once the cause is fixed.
+    inputs_schema:
+      type: object
+      additionalProperties: false
+      required: [source_path, asset_name, linear_unit, report_path, spec, scene]
+      properties:
+        source_path:
+          type: string
+          minLength: 1
+          maxLength: 4096
+          description: glTF, OBJ, or FBX file to ingest.
+        asset_name:
+          type: string
+          minLength: 1
+          maxLength: 128
+        linear_unit:
+          type: string
+          enum: [mm, cm, m, in, ft]
+        report_path:
+          type: string
+          minLength: 1
+          maxLength: 4096
+        target_up_axis:
+          type: string
+          enum: [y, z]
+          default: y
+        fix_normals:
+          type: boolean
+          default: true
+        strict_quality:
+          type: boolean
+          default: true
+        stage:
+          type: string
+          minLength: 1
+          maxLength: 64
+          default: ingest
+        overwrite:
+          type: boolean
+          default: false
+        spec:
+          type: object
+          description: >-
+            Filled Modeling Spec v2 for this asset. Steps are dispatched in order, so
+            the caller materializes this from the get_spec_template receipt before
+            dispatching step 2; keeping it an input means the plan has no hidden
+            state and every placeholder stays resolvable.
+        scene:
+          type: object
+          description: >-
+            Measured scene facts (parts, meshes, proportions) collected through
+            read-only host tools per this skill's control path — measured after
+            normalize_scene and never inferred from a viewport.
+    steps:
+      - tool: modeling_spec__get_spec_template
+        arguments:
+          asset_name: "${asset_name}"
+          linear_unit: "${linear_unit}"
+      - tool: modeling_spec__validate_spec
+        arguments:
+          spec: "${spec}"
+          strict_quality: "${strict_quality}"
+      - tool: asset_ingest__normalize_scene
+        arguments:
+          source_path: "${source_path}"
+          asset_name: "${asset_name}"
+          linear_unit: "${linear_unit}"
+          target_up_axis: "${target_up_axis}"
+          fix_normals: "${fix_normals}"
+      - tool: modeling_spec__validate_scene_vs_spec
+        arguments:
+          spec: "${spec}"
+          scene: "${scene}"
+          stage: "${stage}"
+      - tool: asset_ingest__write_ingest_report
+        arguments:
+          report_path: "${report_path}"
+          asset_name: "${asset_name}"
+          source_path: "${source_path}"
+          linear_unit: "${linear_unit}"
+          overwrite: "${overwrite}"
+    output_contract:
+      type: object
+      required:
+        - asset_name
+        - normalized_linear_unit
+        - imported_mesh_count
+        - source_sha256
+        - report_path
+        - report_sha256
+        - unbound_material_slots
+        - uv_coverage_min
+        - spec_passed
+        - scene_passed
+      properties:
+        asset_name:
+          type: string
+          minLength: 1
+        normalized_linear_unit:
+          type: string
+          enum: [mm, cm, m, in, ft]
+        imported_mesh_count:
+          type: integer
+          minimum: 1
+          maximum: 100000
+        source_sha256:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+        report_path:
+          type: string
+          minLength: 1
+        report_sha256:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+        unbound_material_slots:
+          type: integer
+          minimum: 0
+          maximum: 4096
+        uv_coverage_min:
+          type: number
+          minimum: 0
+          maximum: 1
+        spec_passed:
+          type: boolean
+        scene_passed:
+          type: boolean
+        material_bindings:
+          type: array
+          items:
+            type: object
+            required: [part_id, material_id, bound]
+            properties:
+              part_id: {type: string, minLength: 1}
+              material_id: {type: string, minLength: 1}
+              bound: {type: boolean}
+        findings:
+          type: array
+          items:
+            type: object
+            required: [code, path, message, remediation]
+            properties:
+              code: {type: string, minLength: 1}
+              path: {type: string}
+              message: {type: string, minLength: 1}
+              remediation: {type: string, minLength: 1}
+    toolset_profiles: [modeling-spec]

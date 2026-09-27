@@ -1,0 +1,49 @@
+{
+  "source_path": "/proj/inbox/scout.glb",
+  "asset_name": "Scout Rotorcraft",
+  "linear_unit": "cm",
+  "report_path": "/proj/reports/scout-ingest.json",
+  "spec": {
+    "spec_version": "2.0",
+    "asset": {
+      "name": "Scout Rotorcraft",
+      "linear_unit": "cm",
+      "purpose": "review",
+      "reference_ids": []
+    },
+    "parts": [],
+    "never": [],
+    "proportions": [],
+    "hierarchy": { "root": "asset_root", "nodes": [] },
+    "materials": [],
+    "quality_priority": [],
+    "uncertainties": [],
+    "acceptance": {
+      "stages": [
+        { "id": "ingest", "checks": ["uv_coverage", "material_bindings"] }
+      ],
+      "max_corrections_per_stage": 3,
+      "max_total_corrections": 8
+    }
+  },
+  "scene": {
+    "parts": [
+      {
+        "id": "hull",
+        "parent": "asset_root",
+        "pivot": "asset_root",
+        "material_slots": ["hull_mat"]
+      }
+    ],
+    "meshes": [
+      {
+        "part_id": "hull",
+        "uv_coverage": 0.94,
+        "unbound_material_slots": 0,
+        "non_manifold_edges": 0,
+        "euler_characteristic": 2
+      }
+    ],
+    "proportions": {}
+  }
+}
